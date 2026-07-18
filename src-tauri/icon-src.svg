@@ -1,0 +1,46 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Iron-gall ink background gradient -->
+    <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#262a34"/>
+      <stop offset="55%" stop-color="#191c23"/>
+      <stop offset="100%" stop-color="#101217"/>
+    </linearGradient>
+
+    <!-- Amber caret glow -->
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0a35c"/>
+      <stop offset="100%" stop-color="#d97e38"/>
+    </linearGradient>
+
+    <filter id="caretGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feMerge>
+        <feMergeNode in="b"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Subtle top-edge sheen -->
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="18%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Squircle base (macOS-style rounded rect) -->
+  <rect x="74" y="74" width="876" height="876" rx="200" ry="200" fill="url(#ink)"/>
+  <rect x="74" y="74" width="876" height="876" rx="200" ry="200" fill="url(#sheen)"/>
+  <rect x="75.5" y="75.5" width="873" height="873" rx="199" ry="199"
+        fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="3"/>
+
+  <!-- Serif "C" in warm parchment -->
+  <text x="352" y="672"
+        font-family="'New York', 'Times New Roman', Georgia, serif"
+        font-size="620" font-weight="500" fill="#ece7db"
+        text-anchor="middle">C</text>
+
+  <!-- Completion caret — the signature -->
+  <rect x="560" y="360" width="46" height="304" rx="12"
+        fill="url(#amber)" filter="url(#caretGlow)"/>
+</svg>

@@ -1,0 +1,72 @@
+/* Compleo — design tokens
+ * Identity: "iron-gall ink manuscript"
+ *   Latin compleo = to complete / fill in.
+ *   Surfaces: blue-black manuscript ink. Text: warm parchment.
+ *   Accent: fountain-pen amber (the completion caret). Success: verdigris patina.
+ */
+
+:root {
+  /* Ink surfaces (blue-black, not neutral near-black) */
+  --ink-900: #14161c;
+  --ink-800: #191c23;
+  --ink-700: #22262f;
+  --ink-600: #2c313c;
+  --hairline: rgba(232, 228, 217, 0.09);
+  --hairline-strong: rgba(232, 228, 217, 0.16);
+
+  /* Parchment text (warm, aged paper) */
+  --parchment: #ece7db;
+  --parchment-dim: #a6a08f;
+  --sepia: #75705f;
+
+  /* Accents */
+  --caret: #e0904a;               /* fountain-pen amber — the completion caret */
+  --caret-soft: rgba(224, 144, 74, 0.14);
+  --verdigris: #63a693;           /* ready / success (bronze patina) */
+  --rust: #c76a4c;                /* error */
+  --azure: #6f9bd1;               /* working / in-progress */
+
+  /* Type */
+  --serif: ui-serif, "New York", "Songti SC", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  --mono: "SF Mono", "Menlo", ui-monospace, monospace;
+
+  /* Rhythm */
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 14px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  background: transparent;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* The signature: a completion caret */
+.caret {
+  display: inline-block;
+  width: 3px;
+  height: 1.05em;
+  background: var(--caret);
+  border-radius: 1px;
+  vertical-align: -0.14em;
+  animation: caret-blink 1.15s steps(1, end) infinite;
+}
+
+.caret--steady { animation: none; }
+
+@keyframes caret-blink {
+  0%, 55% { opacity: 1; }
+  55.01%, 100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret { animation: none; }
+}

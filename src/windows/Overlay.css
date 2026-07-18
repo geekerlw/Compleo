@@ -1,0 +1,88 @@
+@import '../theme.css';
+
+.ov {
+  height: 100vh;
+  padding: 14px 16px 11px;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--ink-800) 92%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  color: var(--parchment);
+  font-family: var(--sans);
+  overflow: hidden;
+}
+
+.ov__body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Thinking — quiet sepia, manuscript margin note */
+.ov__thinking {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--sepia);
+  padding-left: 10px;
+  border-left: 1px solid var(--hairline-strong);
+  max-height: 66px;
+  overflow-y: auto;
+}
+
+/* Reply — parchment on ink, amber margin rule */
+.ov__reply {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--parchment);
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--ink-900) 55%, transparent);
+  border-left: 2px solid var(--caret);
+  border-radius: var(--r-sm);
+}
+
+.ov__reply--error {
+  border-left-color: var(--rust);
+  color: var(--rust);
+}
+
+.ov__reply .caret {
+  height: 13px;
+  margin-left: 1px;
+}
+
+.ov__waiting {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--parchment-dim);
+}
+
+.ov__waiting .caret {
+  height: 13px;
+}
+
+/* Footer */
+.ov__foot {
+  padding-top: 9px;
+  margin-top: 9px;
+  border-top: 1px solid var(--hairline);
+}
+
+.ov__hint {
+  font-size: 10.5px;
+  color: var(--sepia);
+}
+
+.ov__ok {
+  color: var(--verdigris);
+}
+
+.ov__hint--error {
+  color: var(--rust);
+}

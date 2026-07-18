@@ -1,0 +1,131 @@
+@import '../theme.css';
+
+.pop {
+  height: 100vh;
+  padding: 13px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  background: color-mix(in srgb, var(--ink-800) 90%, transparent);
+  color: var(--parchment);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+/* Top: wordmark + model */
+.pop__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.pop__mark {
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--parchment);
+}
+
+.pop__mark .caret {
+  height: 12px;
+  margin-left: 1px;
+}
+
+.pop__model {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--sepia);
+}
+
+/* State line */
+.pop__state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.pop__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.pop__label {
+  font-size: 12px;
+  color: var(--parchment-dim);
+}
+
+/* Last reply */
+.pop__reply {
+  flex: 1;
+  min-height: 40px;
+  padding: 9px 11px;
+  background: color-mix(in srgb, var(--ink-900) 45%, transparent);
+  border: 1px solid var(--hairline);
+  border-left: 2px solid var(--caret);
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+}
+
+.pop__text {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--parchment);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.pop__empty {
+  font-size: 11px;
+  color: var(--sepia);
+}
+
+.pop__empty kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 1px 4px;
+  color: var(--parchment-dim);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+}
+
+/* Actions */
+.pop__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.pact {
+  flex: 1;
+  padding: 6px 0;
+  border-radius: var(--r-sm);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--parchment-dim);
+  transition: background 0.12s, color 0.12s;
+}
+
+.pact:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--parchment);
+}
+
+.pact--main {
+  background: var(--caret);
+  border-color: transparent;
+  color: var(--ink-900);
+  font-weight: 600;
+}
+
+.pact--main:hover {
+  filter: brightness(1.08);
+  background: var(--caret);
+  color: var(--ink-900);
+}
