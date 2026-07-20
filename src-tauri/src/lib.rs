@@ -9,6 +9,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 use tokio::sync::mpsc;
 
 mod config;
+mod distill;
 mod llm;
 mod platform;
 mod storage;
@@ -25,6 +26,11 @@ fn get_storage() -> &'static storage::Storage {
             panic!("Storage initialization failed");
         })
     })
+}
+
+/// Get LLM config for embedding API calls (reuses main config)
+fn llm_config_for_embed() -> config::Config {
+    config::Config::load()
 }
 
 #[cfg(target_os = "macos")]
@@ -126,7 +132,31 @@ pub fn run() {
 
             // Initialize storage
             let storage = get_storage();
-            log::info!("Storage ready ({} records)", storage.count());
+            log::info!("Storage ready ({} records, {} undistilled)", storage.count(), storage.undistilled_count());
+
+            // Start background distillation loop
+            std::thread::spawn(|| {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    // Wait a bit after startup before first run
+                    tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+                    loop {
+                        let config = config::Config::load();
+                        if !config.api_key.is_empty() {
+                            let storage = get_storage();
+                            // Distill conversations
+                            let distilled = distill::run_distillation(storage, &config).await;
+                            // Generate embeddings
+                            if distilled > 0 {
+                                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                            }
+                            distill::run_embedding_generation(storage, &config).await;
+                        }
+                        // Run every 5 minutes or when there are undistilled items
+                        tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
+                    }
+                });
+            });
 
             log::info!("Compleo started - tray icon active");
             Ok(())
@@ -206,10 +236,32 @@ fn handle_trigger(app: &tauri::AppHandle, rt: &tokio::runtime::Runtime) {
             )
         };
 
-        // Include app name + style context
+        // Semantic search: find relevant historical messages
+        let semantic_context = match distill::embed_query(&llm_config_for_embed(), &ocr_text).await {
+            Ok(query_vec) => {
+                let results = get_storage().semantic_search(&query_vec, &app_name, 3);
+                if results.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "\n\n[相关历史对话]\n{}",
+                        results.iter()
+                            .map(|(content, _score)| format!("- {}", content))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    )
+                }
+            }
+            Err(e) => {
+                log::debug!("Semantic search skipped: {}", e);
+                String::new()
+            }
+        };
+
+        // Include app name + style + semantic context
         let context_with_app = format!(
-            "[当前应用: {}]{}\n\n{}",
-            app_name, style_context, ocr_text
+            "[当前应用: {}]{}{}\n\n{}",
+            app_name, style_context, semantic_context, ocr_text
         );
 
         let request = llm::LlmRequest {
