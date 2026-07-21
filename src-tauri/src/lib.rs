@@ -225,7 +225,7 @@ pub fn run() {
 
                 let monitor_config = input_monitor::InputMonitorConfig::default();
                 let mut last_app = String::new();
-                let mut last_captured_msg = String::new(); // Dedup: skip if same as last
+                let last_captured_msg = std::sync::Arc::new(Mutex::new(String::new()));
 
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -258,36 +258,48 @@ pub fn run() {
                         Err(_) => continue,
                     };
 
-                    // Enter detected → learning capture
+                    // Enter detected → spawn learning capture in background
                     if input_state.take_enter() {
                         let app_name = current_app.clone();
+                        let delay = monitor_config.enter_capture_delay_ms;
+                        let last_msg = last_captured_msg.clone();
                         drop(input_state);
 
-                        // Wait for message to render in chat
-                        std::thread::sleep(std::time::Duration::from_millis(
-                            monitor_config.enter_capture_delay_ms
-                        ));
+                        std::thread::spawn(move || {
+                            // Wait for message to render in chat
+                            std::thread::sleep(std::time::Duration::from_millis(delay));
 
-                        // Capture and extract the last user message
-                        let provider = platform::MacOSProvider::new();
-                        if let Ok(screenshot) = provider.capture_chat_area() {
-                            if let Ok(ocr_text) = provider.ocr(&screenshot) {
-                                let last_user_msg: Option<&str> = ocr_text.lines()
-                                    .filter(|l| l.starts_with("→ "))
-                                    .last()
-                                    .map(|l| l.trim_start_matches("→ ").trim());
+                            let provider = platform::MacOSProvider::new();
+                            if let Ok(screenshot) = provider.capture_chat_area() {
+                                if let Ok(ocr_text) = provider.ocr(&screenshot) {
+                                    // Filter: get last meaningful → message (skip watermarks/noise)
+                                    let last_user_msg: Option<&str> = ocr_text.lines()
+                                        .filter(|l| l.starts_with("→ "))
+                                        .map(|l| l.trim_start_matches("→ ").trim())
+                                        .filter(|msg| {
+                                            // Skip short noise (watermark fragments)
+                                            if msg.len() < 4 { return false; }
+                                            // Skip known watermark patterns
+                                            let lower = msg.to_lowercase();
+                                            if lower.contains("dingtalk") || lower.contains("ding") && msg.len() < 10 { return false; }
+                                            if lower.starts_with("din") && msg.len() < 8 { return false; }
+                                            true
+                                        })
+                                        .last();
 
-                                if let Some(msg) = last_user_msg {
-                                    if msg.len() > 1 && msg != last_captured_msg {
-                                        last_captured_msg = msg.to_string();
-                                        if let Ok(conv_id) = get_storage().save_conversation(&app_name, &ocr_text, msg) {
-                                            let _ = get_storage().mark_accepted(conv_id);
+                                    if let Some(msg) = last_user_msg {
+                                        let mut last = last_msg.lock().unwrap_or_else(|e| e.into_inner());
+                                        if msg.len() > 1 && msg != last.as_str() {
+                                            *last = msg.to_string();
+                                            if let Ok(conv_id) = get_storage().save_conversation(&app_name, &ocr_text, msg) {
+                                                let _ = get_storage().mark_accepted(conv_id);
+                                            }
+                                            log::info!("Enter learning: captured '{}' from {}", &msg[..msg.len().min(30)], app_name);
                                         }
-                                        log::info!("Enter learning: captured '{}' from {}", &msg[..msg.len().min(30)], app_name);
                                     }
                                 }
                             }
-                        }
+                        });
                         continue;
                     }
 

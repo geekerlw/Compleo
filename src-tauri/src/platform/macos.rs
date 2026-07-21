@@ -16,10 +16,32 @@ impl MacOSProvider {
         Self { temp_dir }
     }
 
-    /// Crop screenshot to only keep the chat area.
-    /// Removes: top 30% (navigation), left 30% (contact list/sidebar).
-    /// This targets the main chat content area of messaging apps.
-    fn crop_to_chat_area(&self, path: &PathBuf) -> PlatformResult<()> {
+    /// Per-app crop configuration.
+    /// Returns (top_pct, left_pct, right_pct) — percentage of image to remove from each side.
+    fn crop_config_for_app(app_name: &str) -> (f32, f32, f32) {
+        // top%, left%, right%
+        if app_name.contains("WeChat") || app_name.contains("微信") {
+            (0.25, 0.30, 0.0)  // Left sidebar ~30%, top nav ~25%
+        } else if app_name.contains("QQ") {
+            (0.25, 0.25, 0.20) // Left sidebar ~25%, right member panel ~20%
+        } else if app_name.contains("DingTalk") || app_name.contains("钉钉") {
+            (0.25, 0.30, 0.0)  // Left sidebar ~30%
+        } else if app_name.contains("Slack") {
+            (0.0, 0.22, 0.0)   // Left channel list ~22%, no top crop (compact header)
+        } else if app_name.contains("Telegram") {
+            (0.0, 0.28, 0.0)   // Left chat list ~28%
+        } else if app_name.contains("Lark") || app_name.contains("飞书") {
+            (0.25, 0.25, 0.0)  // Left sidebar ~25%
+        } else if app_name.contains("Messages") || app_name.contains("信息") {
+            (0.0, 0.30, 0.0)   // Left conversation list ~30%
+        } else {
+            // Default: remove left 30% + top 25% (works for most chat apps)
+            (0.25, 0.30, 0.0)
+        }
+    }
+
+    /// Crop screenshot to only keep the chat area, using per-app layout config.
+    fn crop_to_chat_area(&self, path: &PathBuf, app_name: &str) -> PlatformResult<()> {
         // Get image dimensions using sips
         let output = Command::new("sips")
             .args(["-g", "pixelHeight", "-g", "pixelWidth", path.to_str().unwrap()])
@@ -43,16 +65,19 @@ impl MacOSProvider {
             return Ok(());
         }
 
-        // Crop strategy:
-        // - Remove top 25% (title bar, navigation)
-        // - Remove left 30% (contact list sidebar)
-        // This leaves the bottom-right area which is the chat content
-        let crop_top = (height as f32 * 0.25) as u32;
-        let crop_left = (width as f32 * 0.30) as u32;
-        let new_height = height - crop_top;
-        let new_width = width - crop_left;
+        let (top_pct, left_pct, right_pct) = Self::crop_config_for_app(app_name);
 
-        // sips crop: first crop to size, then set offset
+        let crop_top = (height as f32 * top_pct) as u32;
+        let crop_left = (width as f32 * left_pct) as u32;
+        let crop_right = (width as f32 * right_pct) as u32;
+        let new_height = height - crop_top;
+        let new_width = width - crop_left - crop_right;
+
+        if new_height < 100 || new_width < 100 {
+            log::warn!("Crop result too small, skipping");
+            return Ok(());
+        }
+
         let output = Command::new("sips")
             .args([
                 "-c", &new_height.to_string(), &new_width.to_string(),
@@ -65,7 +90,8 @@ impl MacOSProvider {
         if !output.status.success() {
             log::warn!("sips crop failed, using full screenshot");
         } else {
-            log::info!("Cropped screenshot: {}x{} (removed top {}px, left {}px)", new_width, new_height, crop_top, crop_left);
+            log::info!("Cropped screenshot: {}x{} (top {}px, left {}px, right {}px) [{}]",
+                new_width, new_height, crop_top, crop_left, crop_right, app_name);
         }
 
         Ok(())
@@ -175,6 +201,7 @@ impl MacOSProvider {
 impl PlatformProvider for MacOSProvider {
     fn capture_chat_area(&self) -> PlatformResult<Screenshot> {
         let path = self.temp_dir.join("screenshot.png");
+        let app_name = self.frontmost_app_name().unwrap_or_else(|_| "Unknown".to_string());
 
         // Try to get frontmost window ID for targeted capture
         match self.frontmost_window_id() {
@@ -220,7 +247,7 @@ impl PlatformProvider for MacOSProvider {
         }
 
         // Use sips to get height and crop
-        self.crop_to_chat_area(&path)?;
+        self.crop_to_chat_area(&path, &app_name)?;
 
         Ok(Screenshot {
             path,
