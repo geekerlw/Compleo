@@ -100,6 +100,10 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
+            // Hide from Dock by default, only show in menu bar
+            #[cfg(target_os = "macos")]
+            app.handle().set_activation_policy(tauri::ActivationPolicy::Accessory)?;
+
             let cmd_period = Shortcut::new(Some(Modifiers::SUPER), Code::Period);
             app.global_shortcut().register(cmd_period)?;
             log::info!("Registered global shortcut: Cmd+.");
@@ -612,6 +616,10 @@ fn open_main_window(app: &tauri::AppHandle) {
         let _ = popover.hide();
     }
 
+    // Show in Dock when main window is open
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
@@ -632,6 +640,16 @@ fn open_main_window(app: &tauri::AppHandle) {
                 use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
                 let _ = apply_vibrancy(&window, NSVisualEffectMaterial::Sidebar, None, None);
             }
+
+            // Listen for close to hide from Dock
+            let app_handle = app.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    #[cfg(target_os = "macos")]
+                    let _ = app_handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                }
+            });
+
             log::info!("Main window opened");
         }
         Err(e) => log::error!("Failed to open main window: {}", e),
