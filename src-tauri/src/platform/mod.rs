@@ -22,16 +22,17 @@ pub enum PlatformError {
 pub struct Screenshot {
     /// Path to the temporary PNG file
     pub path: PathBuf,
-    /// Width in pixels
+    /// Width in pixels (may be used for layout detection)
+    #[allow(dead_code)]
     pub width: u32,
-    /// Height in pixels
+    /// Height in pixels (may be used for layout detection)
+    #[allow(dead_code)]
     pub height: u32,
 }
 
 /// Platform abstraction trait
 pub trait PlatformProvider: Send + Sync {
     /// Capture the chat area of the frontmost window
-    /// Returns a screenshot saved to a temp file
     fn capture_chat_area(&self) -> PlatformResult<Screenshot>;
 
     /// OCR the screenshot and return recognized text
@@ -41,7 +42,7 @@ pub trait PlatformProvider: Send + Sync {
     fn frontmost_app_name(&self) -> PlatformResult<String>;
 
     /// Read the focused input field text (via Accessibility API)
-    /// Returns None if not available or no text
+    #[allow(dead_code)]
     fn read_input_field(&self) -> PlatformResult<Option<String>>;
 
     /// Write text to the system clipboard

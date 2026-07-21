@@ -1,6 +1,5 @@
-//! Background conversation distillation.
-//! Uses LLM to extract structured messages from raw OCR text,
-//! then generates embeddings for semantic search.
+//! Background conversation distillation and style profile generation.
+//! Uses LLM to extract structured messages from raw OCR text.
 
 use crate::config::Config;
 use crate::storage::Storage;
@@ -53,7 +52,6 @@ pub async fn run_distillation(storage: &Storage, config: &Config) -> usize {
             }
             Err(e) => {
                 log::error!("Distillation failed for conv {}: {}", conv.id, e);
-                // Mark as distilled anyway to avoid retrying forever
                 let _ = storage.mark_distilled(conv.id);
             }
         }
@@ -63,47 +61,55 @@ pub async fn run_distillation(storage: &Storage, config: &Config) -> usize {
     processed
 }
 
-/// Generate embeddings for messages that don't have them yet.
-/// Uses OpenAI embeddings API.
-pub async fn run_embedding_generation(storage: &Storage, config: &Config) -> usize {
-    let messages = storage.messages_without_embeddings(20);
-    if messages.is_empty() {
-        return 0;
-    }
+// ========== Style Profile Distillation ==========
 
-    log::info!("Generating embeddings for {} messages", messages.len());
-    let client = Client::new();
-    let mut processed = 0;
+const STYLE_PROFILE_PROMPT: &str = r#"你是一个语言风格分析师。分析以下用户在聊天中的消息样本，提炼出一份简洁的"说话风格画像"。
 
-    // Batch messages for embedding (up to 20 at a time)
-    let texts: Vec<&str> = messages.iter().map(|(_, _, content)| content.as_str()).collect();
+要求：
+- 分析用词偏好（口头禅、常用词、语气词）
+- 分析句式特点（长短句、断句习惯）
+- 分析语气特征（正式/随意、幽默/严肃、直接/委婉）
+- 分析回复长度偏好
+- 用中文输出，控制在 150 字以内
+- 只输出风格描述，不要分析过程
 
-    match generate_embeddings(&client, config, &texts).await {
-        Ok(vectors) => {
-            for (i, (msg_id, app_name, content)) in messages.iter().enumerate() {
-                if i < vectors.len() {
-                    if let Err(e) = storage.save_embedding(*msg_id, app_name, content, &vectors[i]) {
-                        log::error!("Failed to save embedding: {}", e);
-                        continue;
-                    }
-                    processed += 1;
+输出格式示例：
+"偏好短句回复，常用语气词'嗯'、'好的'、'行'。语气随意直接，不绕弯子。偶尔用网络用语和表情符号。工作相关话题会稍微正式，但整体轻松。回复通常 1-2 句话。""#;
+
+/// Distill style profiles from user's message history.
+/// Only re-distills if there are significantly more samples than last time.
+pub async fn distill_style_profiles(storage: &Storage, config: &Config) {
+    let apps = storage.apps_with_conversations();
+
+    for app_name in &apps {
+        let messages = storage.user_messages_for_app(app_name, 30);
+        if messages.len() < 5 {
+            continue;
+        }
+
+        let current_count = messages.len() as i64;
+        let last_count = storage.style_profile_sample_count(app_name);
+
+        // Only re-distill if we have 50%+ more samples
+        if last_count > 0 && current_count < last_count * 3 / 2 {
+            continue;
+        }
+
+        log::info!("Distilling style profile for {} ({} samples)", app_name, current_count);
+
+        match generate_style_profile(config, &messages).await {
+            Ok(profile) => {
+                if let Err(e) = storage.save_style_profile(app_name, &profile, current_count) {
+                    log::error!("Failed to save style profile: {}", e);
+                } else {
+                    log::info!("Style profile for {}: {}", app_name, &profile[..profile.len().min(60)]);
                 }
             }
-        }
-        Err(e) => {
-            log::error!("Embedding generation failed: {}", e);
+            Err(e) => {
+                log::error!("Style profile distillation failed for {}: {}", app_name, e);
+            }
         }
     }
-
-    log::info!("Generated {} embeddings", processed);
-    processed
-}
-
-/// Embed a single query text for semantic search
-pub async fn embed_query(config: &Config, text: &str) -> Result<Vec<f32>, String> {
-    let client = Client::new();
-    let vectors = generate_embeddings(&client, config, &[text]).await?;
-    vectors.into_iter().next().ok_or_else(|| "No embedding returned".to_string())
 }
 
 // ========== Internal helpers ==========
@@ -121,14 +127,9 @@ async fn distill_one(
     ocr_text: &str,
 ) -> Result<Vec<DistilledMsg>, String> {
     #[derive(Serialize)]
-    struct Req {
-        model: String,
-        messages: Vec<Msg>,
-        temperature: f32,
-    }
+    struct Req { model: String, messages: Vec<Msg>, temperature: f32 }
     #[derive(Serialize)]
     struct Msg { role: String, content: String }
-
     #[derive(Deserialize)]
     struct Resp { choices: Vec<Choice> }
     #[derive(Deserialize)]
@@ -164,7 +165,6 @@ async fn distill_one(
         .and_then(|c| c.message.content.as_deref())
         .unwrap_or("[]");
 
-    // Extract JSON array from content (might have markdown fences)
     let json_str = extract_json_array(content);
     let messages: Vec<DistilledMsg> = serde_json::from_str(&json_str)
         .unwrap_or_else(|e| {
@@ -175,23 +175,34 @@ async fn distill_one(
     Ok(messages)
 }
 
-async fn generate_embeddings(
-    client: &Client,
-    config: &Config,
-    texts: &[&str],
-) -> Result<Vec<Vec<f32>>, String> {
+async fn generate_style_profile(config: &Config, messages: &[String]) -> Result<String, String> {
     #[derive(Serialize)]
-    struct Req { model: String, input: Vec<String> }
-
+    struct Req { model: String, messages: Vec<Msg>, temperature: f32 }
+    #[derive(Serialize)]
+    struct Msg { role: String, content: String }
     #[derive(Deserialize)]
-    struct Resp { data: Vec<EmbData> }
+    struct Resp { choices: Vec<Choice> }
     #[derive(Deserialize)]
-    struct EmbData { embedding: Vec<f32> }
+    struct Choice { message: RMsg }
+    #[derive(Deserialize)]
+    struct RMsg { content: Option<String> }
 
-    let url = format!("{}/embeddings", config.base_url);
+    let samples = messages.iter()
+        .take(20)
+        .enumerate()
+        .map(|(i, m)| format!("{}. {}", i + 1, m))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let client = Client::new();
+    let url = format!("{}/chat/completions", config.base_url);
     let req = Req {
-        model: "text-embedding-3-small".to_string(),
-        input: texts.iter().map(|t| t.to_string()).collect(),
+        model: config.model.clone(),
+        messages: vec![
+            Msg { role: "system".into(), content: STYLE_PROFILE_PROMPT.into() },
+            Msg { role: "user".into(), content: format!("以下是用户的聊天消息样本：\n\n{}", samples) },
+        ],
+        temperature: 0.3,
     };
 
     let resp = client.post(&url)
@@ -202,30 +213,38 @@ async fn generate_embeddings(
         .map_err(|e| format!("HTTP error: {}", e))?;
 
     if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Embedding API error ({}): {}", status, &body[..body.len().min(200)]));
+        return Err(format!("API error: {}", resp.status()));
     }
 
     let body: Resp = resp.json().await.map_err(|e| format!("Parse error: {}", e))?;
-    Ok(body.data.into_iter().map(|d| d.embedding).collect())
+    let content = body.choices.first()
+        .and_then(|c| c.message.content.as_deref())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    // Strip <think> tags if present
+    let result = if let Some(pos) = content.find("</think>") {
+        content[(pos + 8)..].trim().to_string()
+    } else {
+        content
+    };
+
+    // Strip surrounding quotes
+    let result = result.trim_matches('"').trim_matches('「').trim_matches('」').trim().to_string();
+    Ok(result)
 }
 
 /// Extract JSON array from content that might be wrapped in markdown fences
 fn extract_json_array(content: &str) -> String {
     let trimmed = content.trim();
-
-    // Try to find JSON array directly
     if trimmed.starts_with('[') {
         return trimmed.to_string();
     }
-
-    // Look for ```json ... ``` block
     if let Some(start) = trimmed.find('[') {
         if let Some(end) = trimmed.rfind(']') {
             return trimmed[start..=end].to_string();
         }
     }
-
     "[]".to_string()
 }

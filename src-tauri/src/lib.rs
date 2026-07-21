@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -8,8 +9,10 @@ use tauri::{
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tokio::sync::mpsc;
 
+mod auto_trigger;
 mod config;
 mod distill;
+mod input_monitor;
 mod llm;
 mod platform;
 mod storage;
@@ -18,6 +21,11 @@ use std::sync::OnceLock;
 
 /// Global storage instance
 static STORAGE: OnceLock<storage::Storage> = OnceLock::new();
+
+/// Global input monitor state
+static INPUT_STATE: OnceLock<Arc<Mutex<input_monitor::InputMonitorState>>> = OnceLock::new();
+
+use std::sync::Arc;
 
 fn get_storage() -> &'static storage::Storage {
     STORAGE.get_or_init(|| {
@@ -28,9 +36,8 @@ fn get_storage() -> &'static storage::Storage {
     })
 }
 
-/// Get LLM config for embedding API calls (reuses main config)
-fn llm_config_for_embed() -> config::Config {
-    config::Config::load()
+fn get_input_state() -> &'static Arc<Mutex<input_monitor::InputMonitorState>> {
+    INPUT_STATE.get_or_init(|| Arc::new(Mutex::new(input_monitor::InputMonitorState::new())))
 }
 
 #[cfg(target_os = "macos")]
@@ -134,6 +141,33 @@ pub fn run() {
             let storage = get_storage();
             log::info!("Storage ready ({} records, {} undistilled)", storage.count(), storage.undistilled_count());
 
+            // Pre-create overlay window (hidden) so it's ready on first Cmd+. trigger
+            {
+                let window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("index.html".into()))
+                    .title("Compleo Overlay")
+                    .inner_size(420.0, 200.0)
+                    .decorations(false)
+                    .always_on_top(true)
+                    .skip_taskbar(true)
+                    .focused(false)
+                    .transparent(true)
+                    .resizable(false)
+                    .shadow(false)
+                    .visible_on_all_workspaces(true)
+                    .visible(false)
+                    .center()
+                    .build();
+
+                match window {
+                    Ok(w) => {
+                        #[cfg(target_os = "macos")]
+                        make_window_non_activating(&w);
+                        log::info!("Overlay window pre-created (hidden)");
+                    }
+                    Err(e) => log::error!("Failed to pre-create overlay: {}", e),
+                }
+            }
+
             // Start background distillation loop
             std::thread::spawn(|| {
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -146,16 +180,102 @@ pub fn run() {
                             let storage = get_storage();
                             // Distill conversations
                             let distilled = distill::run_distillation(storage, &config).await;
-                            // Generate embeddings
+                            // Distill style profiles
                             if distilled > 0 {
                                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                             }
-                            distill::run_embedding_generation(storage, &config).await;
+                            distill::distill_style_profiles(storage, &config).await;
                         }
-                        // Run every 5 minutes or when there are undistilled items
+                        // Run every 5 minutes
                         tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
                     }
                 });
+            });
+
+            // Start app-switch monitoring + input monitor
+
+            // Thread 1: CGEventTap for keystroke monitoring
+            let input_state = get_input_state().clone();
+            std::thread::spawn(move || {
+                input_monitor::start_event_tap(input_state);
+            });
+
+            // Thread 2: App-switch polling + Enter learning
+            std::thread::spawn(move || {
+                use objc2_app_kit::NSWorkspace;
+
+                let monitor_config = input_monitor::InputMonitorConfig::default();
+                let mut last_app = String::new();
+
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+
+                    // Update current app in input monitor state
+                    let workspace = NSWorkspace::sharedWorkspace();
+                    let current_app = workspace
+                        .frontmostApplication()
+                        .and_then(|a| a.localizedName())
+                        .map(|n| n.to_string())
+                        .unwrap_or_default();
+
+                    if current_app != last_app && !current_app.is_empty() {
+                        log::info!("App switch: {} → {}", last_app, current_app);
+                        last_app = current_app.clone();
+                    }
+
+                    // Update input state with current app
+                    if let Ok(mut state) = get_input_state().lock() {
+                        state.current_app = current_app.clone();
+                    }
+
+                    // Only process chat apps
+                    if !auto_trigger::is_chat_app(&current_app) {
+                        continue;
+                    }
+
+                    let mut input_state = match get_input_state().lock() {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+
+                    // Enter detected → learning capture
+                    if input_state.take_enter() {
+                        let app_name = current_app.clone();
+                        drop(input_state);
+
+                        // Wait for message to render in chat
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            monitor_config.enter_capture_delay_ms
+                        ));
+
+                        // Capture and extract the last user message
+                        let provider = platform::MacOSProvider::new();
+                        if let Ok(screenshot) = provider.capture_chat_area() {
+                            if let Ok(ocr_text) = provider.ocr(&screenshot) {
+                                let last_user_msg: Option<&str> = ocr_text.lines()
+                                    .filter(|l| l.starts_with("→ "))
+                                    .last()
+                                    .map(|l| l.trim_start_matches("→ ").trim());
+
+                                if let Some(msg) = last_user_msg {
+                                    if msg.len() > 1 {
+                                        let _ = get_storage().save_conversation(&app_name, &ocr_text, msg);
+                                        let _ = get_storage().mark_accepted(get_storage().count());
+                                        log::info!("Enter learning: captured '{}' from {}", &msg[..msg.len().min(30)], app_name);
+                                    }
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    // Reset typing state if idle for 10s
+                    if input_state.is_typing && input_state.last_keystroke.elapsed() > std::time::Duration::from_secs(10) {
+                        input_state.is_typing = false;
+                    }
+
+                    drop(input_state);
+                }
             });
 
             log::info!("Compleo started - tray icon active");
@@ -236,39 +356,20 @@ fn handle_trigger(app: &tauri::AppHandle, rt: &tokio::runtime::Runtime) {
             )
         };
 
-        // Semantic search: find relevant historical messages
-        let semantic_context = match distill::embed_query(&llm_config_for_embed(), &ocr_text).await {
-            Ok(query_vec) => {
-                let results = get_storage().semantic_search(&query_vec, &app_name, 3);
-                if results.is_empty() {
-                    String::new()
-                } else {
-                    format!(
-                        "\n\n[相关历史对话]\n{}",
-                        results.iter()
-                            .map(|(content, _score)| format!("- {}", content))
-                            .collect::<Vec<_>>()
-                            .join("\n")
-                    )
-                }
-            }
-            Err(e) => {
-                log::debug!("Semantic search skipped: {}", e);
-                String::new()
-            }
-        };
+        // Get distilled style profile (more powerful than raw examples)
+        let profile_context = get_storage()
+            .get_style_profile(&app_name)
+            .map(|p| format!("\n\n[用户说话风格画像]\n{}", p))
+            .unwrap_or_default();
 
-        // Include app name + style + semantic context
+        // Include app name + style context
         let context_with_app = format!(
             "[当前应用: {}]{}{}\n\n{}",
-            app_name, style_context, semantic_context, ocr_text
+            app_name, profile_context, style_context, ocr_text
         );
 
         let request = llm::LlmRequest {
-            system_prompt: String::new(),
             current_context: context_with_app,
-            draft: None,
-            mode: llm::Mode::Reply,
         };
 
         // Spawn the streaming task
@@ -364,15 +465,12 @@ fn capture_and_ocr() -> (String, String) {
 }
 
 fn ensure_overlay_window(app: &tauri::AppHandle) {
-    if app.get_webview_window("overlay").is_some() {
-        // Already exists, just show it
-        if let Some(w) = app.get_webview_window("overlay") {
-            let _ = w.show();
-        }
+    if let Some(w) = app.get_webview_window("overlay") {
+        let _ = w.show();
         return;
     }
 
-    // Create overlay window
+    // Fallback: create if somehow missing (should not happen after pre-creation)
     let window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("index.html".into()))
         .title("Compleo Overlay")
         .inner_size(420.0, 200.0)
@@ -391,18 +489,10 @@ fn ensure_overlay_window(app: &tauri::AppHandle) {
         Ok(w) => {
             #[cfg(target_os = "macos")]
             make_window_non_activating(&w);
-            log::info!("Overlay window created");
+            log::info!("Overlay window created (fallback)");
         }
         Err(e) => log::error!("Failed to create overlay: {}", e),
     }
-}
-
-fn hide_overlay(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("overlay") {
-        let _ = window.hide();
-        let _ = app.emit("hide-recommendation", ());
-    }
-    BUSY.store(false, Ordering::SeqCst);
 }
 
 fn start_auto_hide(app: tauri::AppHandle, seconds: u64) {
@@ -416,10 +506,6 @@ fn start_auto_hide(app: tauri::AppHandle, seconds: u64) {
             }
         }
     });
-}
-
-fn open_settings_window(app: &tauri::AppHandle) {
-    open_main_window(app);
 }
 
 fn toggle_popover(app: &tauri::AppHandle, tray_rect: Option<tauri::Rect>) {

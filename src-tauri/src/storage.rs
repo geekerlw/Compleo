@@ -7,6 +7,7 @@ use std::sync::Mutex;
 
 /// A single conversation record (raw OCR + LLM reply)
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Conversation {
     pub id: i64,
     pub app_name: String,
@@ -19,13 +20,14 @@ pub struct Conversation {
 
 /// A distilled message extracted from a conversation
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[allow(dead_code)]
 pub struct DistilledMessage {
     pub id: i64,
     pub conversation_id: i64,
     pub app_name: String,
-    pub sender: String,     // "user" or contact name
-    pub content: String,    // the actual message text
-    pub is_user: bool,      // whether this is the user's own message
+    pub sender: String,
+    pub content: String,
+    pub is_user: bool,
     pub created_at: String,
 }
 
@@ -109,6 +111,13 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_distilled_app ON distilled_messages(app_name);
             CREATE INDEX IF NOT EXISTS idx_embeddings_app ON embeddings(app_name);
             CREATE INDEX IF NOT EXISTS idx_conv_distilled ON conversations(distilled);
+
+            CREATE TABLE IF NOT EXISTS style_profiles (
+                app_name    TEXT PRIMARY KEY,
+                profile     TEXT NOT NULL DEFAULT '',
+                sample_count INTEGER NOT NULL DEFAULT 0,
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
             "
         ).map_err(|e| format!("Migration v0.2 failed: {}", e))?;
 
@@ -230,87 +239,73 @@ impl Storage {
         Ok(())
     }
 
-    // ========== Embeddings ==========
+    // ========== Style Profiles ==========
 
-    /// Save an embedding vector for a distilled message
-    pub fn save_embedding(
-        &self,
-        message_id: i64,
-        app_name: &str,
-        content: &str,
-        vector: &[f32],
-    ) -> Result<(), String> {
+    /// Get the style profile for an app
+    pub fn get_style_profile(&self, app_name: &str) -> Option<String> {
         let conn = self.conn.lock().unwrap();
-        let blob = vector_to_blob(vector);
+        conn.query_row(
+            "SELECT profile FROM style_profiles WHERE app_name = ?1 AND profile != ''",
+            params![app_name],
+            |row| row.get(0),
+        ).ok()
+    }
+
+    /// Save/update a style profile for an app
+    pub fn save_style_profile(&self, app_name: &str, profile: &str, sample_count: i64) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO embeddings (message_id, app_name, content, vector) VALUES (?1, ?2, ?3, ?4)",
-            params![message_id, app_name, content, blob],
-        ).map_err(|e| format!("Insert embedding failed: {}", e))?;
+            "INSERT INTO style_profiles (app_name, profile, sample_count, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(app_name) DO UPDATE SET
+                profile = ?2, sample_count = ?3, updated_at = datetime('now')",
+            params![app_name, profile, sample_count],
+        ).map_err(|e| format!("Save style profile failed: {}", e))?;
         Ok(())
     }
 
-    /// Search for similar messages using cosine similarity.
-    /// Returns (content, similarity_score) pairs, sorted by relevance.
-    pub fn semantic_search(
-        &self,
-        query_vector: &[f32],
-        app_name: &str,
-        limit: usize,
-    ) -> Vec<(String, f32)> {
+    /// Get all user messages for an app (for style distillation)
+    pub fn user_messages_for_app(&self, app_name: &str, limit: usize) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = match conn.prepare(
-            "SELECT content, vector FROM embeddings WHERE app_name = ?1"
+            "SELECT reply FROM conversations
+             WHERE app_name = ?1 AND accepted = 1 AND reply != ''
+             ORDER BY created_at DESC LIMIT ?2"
         ) {
             Ok(s) => s,
             Err(_) => return vec![],
         };
 
-        let mut results: Vec<(String, f32)> = stmt.query_map(params![app_name], |row| {
-            let content: String = row.get(0)?;
-            let blob: Vec<u8> = row.get(1)?;
-            Ok((content, blob))
-        })
-        .ok()
-        .map(|rows| {
-            rows.filter_map(|r| r.ok())
-                .map(|(content, blob)| {
-                    let stored_vec = blob_to_vector(&blob);
-                    let sim = cosine_similarity(query_vector, &stored_vec);
-                    (content, sim)
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-        // Sort by similarity descending, take top N
-        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        results.truncate(limit);
-
-        // Filter out low-relevance results (threshold: 0.7)
-        results.retain(|(_, sim)| *sim > 0.7);
-        results
+        stmt.query_map(params![app_name, limit as i64], |row| row.get::<_, String>(0))
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default()
     }
 
-    /// Get distilled messages that don't have embeddings yet
-    pub fn messages_without_embeddings(&self, limit: usize) -> Vec<(i64, String, String)> {
+    /// Get distinct app names that have conversations
+    pub fn apps_with_conversations(&self) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = match conn.prepare(
-            "SELECT dm.id, dm.app_name, dm.content
-             FROM distilled_messages dm
-             LEFT JOIN embeddings e ON e.message_id = dm.id
-             WHERE e.id IS NULL AND dm.content != ''
-             LIMIT ?1"
+            "SELECT DISTINCT app_name FROM conversations WHERE reply != '' AND accepted = 1"
         ) {
             Ok(s) => s,
             Err(_) => return vec![],
         };
 
-        stmt.query_map(params![limit as i64], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
-        })
-        .ok()
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default()
+        stmt.query_map([], |row| row.get::<_, String>(0))
+            .ok()
+            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Get style profile sample count
+    pub fn style_profile_sample_count(&self, app_name: &str) -> i64 {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT sample_count FROM style_profiles WHERE app_name = ?1",
+            params![app_name],
+            |row| row.get(0),
+        ).unwrap_or(0)
     }
 
     // ========== Maintenance ==========
@@ -347,27 +342,4 @@ impl Storage {
     }
 }
 
-// ========== Vector helpers ==========
 
-fn vector_to_blob(v: &[f32]) -> Vec<u8> {
-    v.iter().flat_map(|f| f.to_le_bytes()).collect()
-}
-
-fn blob_to_vector(blob: &[u8]) -> Vec<f32> {
-    blob.chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect()
-}
-
-fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-    if a.len() != b.len() || a.is_empty() {
-        return 0.0;
-    }
-    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if norm_a == 0.0 || norm_b == 0.0 {
-        return 0.0;
-    }
-    dot / (norm_a * norm_b)
-}

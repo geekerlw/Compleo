@@ -1,4 +1,4 @@
-use super::{LlmConfig, LlmRequest, Mode};
+use super::{LlmConfig, LlmRequest};
 use futures::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -52,16 +52,10 @@ OCR 文本格式说明：
 - 只关注真实的聊天消息（←和→标记的有意义的文字）
 - 根据标记判断谁是对方（←），谁是用户（→）
 - 找到对方最近的消息，代替用户生成回复
-- 如果提供了"用户之前的回复风格参考"，模仿该风格（用词习惯、语气、长度）
+- 如果提供了"用户说话风格画像"，严格模仿该风格（用词、语气、长度）
+- 如果提供了"用户之前的回复风格参考"，参考其用词习惯
 - 语言与聊天一致，简洁自然，1-2 句话
 - 只输出回复内容本身，不要加任何前缀或解释"#;
-
-const SYSTEM_PROMPT_COMPLETE: &str = r#"你是聊天补全助手。根据对话上下文和用户草稿，补全成完整消息。
-
-规则：
-- 站在用户角度补全消息
-- 简洁自然，1-3 句话
-- 只输出补全后的完整消息"#;
 
 pub async fn stream_chat_completion(
     config: &LlmConfig,
@@ -70,23 +64,9 @@ pub async fn stream_chat_completion(
 ) -> Result<String, String> {
     let client = Client::new();
 
-    let system_prompt = match request.mode {
-        Mode::Reply => SYSTEM_PROMPT_REPLY.to_string(),
-        Mode::Complete => SYSTEM_PROMPT_COMPLETE.to_string(),
-    };
+    let system_prompt = SYSTEM_PROMPT_REPLY.to_string();
 
-    let user_content = match request.mode {
-        Mode::Reply => {
-            format!("以下是聊天截屏的 OCR 文本：\n\n{}", request.current_context)
-        }
-        Mode::Complete => {
-            format!(
-                "以下是聊天截屏的 OCR 文本（上下文）：\n\n{}\n\n---\n用户已输入的草稿：\n{}",
-                request.current_context,
-                request.draft.unwrap_or_default()
-            )
-        }
-    };
+    let user_content = format!("以下是聊天截屏的 OCR 文本：\n\n{}", request.current_context);
 
     let messages = vec![
         Message {
