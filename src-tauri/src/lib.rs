@@ -225,6 +225,7 @@ pub fn run() {
 
                 let monitor_config = input_monitor::InputMonitorConfig::default();
                 let mut last_app = String::new();
+                let mut last_captured_msg = String::new(); // Dedup: skip if same as last
 
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(500));
@@ -277,9 +278,11 @@ pub fn run() {
                                     .map(|l| l.trim_start_matches("→ ").trim());
 
                                 if let Some(msg) = last_user_msg {
-                                    if msg.len() > 1 {
-                                        let _ = get_storage().save_conversation(&app_name, &ocr_text, msg);
-                                        let _ = get_storage().mark_accepted(get_storage().count());
+                                    if msg.len() > 1 && msg != last_captured_msg {
+                                        last_captured_msg = msg.to_string();
+                                        if let Ok(conv_id) = get_storage().save_conversation(&app_name, &ocr_text, msg) {
+                                            let _ = get_storage().mark_accepted(conv_id);
+                                        }
                                         log::info!("Enter learning: captured '{}' from {}", &msg[..msg.len().min(30)], app_name);
                                     }
                                 }
@@ -406,15 +409,10 @@ fn handle_trigger(app: &tauri::AppHandle, rt: &tokio::runtime::Runtime) {
             Ok(Ok(full_text)) => {
                 log::info!("LLM response complete ({} chars)", full_text.len());
 
-                // Save to storage
+                // Save to storage (not marked accepted until user actually sends it)
                 let conv_id = get_storage()
                     .save_conversation(&app_name, &ocr_text, &full_text)
                     .unwrap_or_else(|e| { log::error!("Storage save failed: {}", e); -1 });
-
-                // Mark as accepted (user will paste it)
-                if conv_id > 0 {
-                    let _ = get_storage().mark_accepted(conv_id);
-                }
 
                 // Copy to clipboard
                 let provider = platform::MacOSProvider::new();
