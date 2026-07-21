@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { useTheme } from './hooks/useTheme';
 import './windows/Overlay.css';
 
 type Status = 'idle' | 'streaming' | 'done' | 'error';
 
 function App() {
+  useTheme();
   const [thinking, setThinking] = useState('');
   const [reply, setReply] = useState('');
   const [status, setStatus] = useState<Status>('idle');

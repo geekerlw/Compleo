@@ -3,8 +3,8 @@
 .shell {
   display: flex;
   height: 100vh;
-  background: color-mix(in srgb, var(--ink-800) 97%, transparent);
-  color: var(--parchment);
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-family: var(--sans);
   font-size: 13px;
 }
@@ -16,8 +16,8 @@
   display: flex;
   flex-direction: column;
   padding: 46px 0 14px;
-  background: color-mix(in srgb, var(--ink-900) 92%, transparent);
-  border-right: 1px solid var(--hairline);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
   user-select: none;
 }
 
@@ -33,7 +33,7 @@
   font-size: 19px;
   font-weight: 500;
   letter-spacing: 0.2px;
-  color: var(--parchment);
+  color: var(--text-primary);
 }
 
 .rail__mark .caret {
@@ -59,7 +59,7 @@
   background: transparent;
   border: none;
   border-radius: var(--r-sm);
-  color: var(--parchment-dim);
+  color: var(--text-secondary);
   font-family: var(--sans);
   font-size: 13px;
   cursor: pointer;
@@ -76,16 +76,16 @@
 }
 
 .nav:hover {
-  color: var(--parchment);
-  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  background: var(--accent-soft);
 }
 
 .nav--on {
-  color: var(--parchment);
+  color: var(--text-primary);
 }
 
 .nav--on .nav__mark {
-  background: var(--caret);
+  background: var(--accent);
 }
 
 .rail__foot {
@@ -96,7 +96,7 @@
   font-family: var(--serif);
   font-size: 11px;
   font-style: italic;
-  color: var(--sepia);
+  color: var(--text-tertiary);
   letter-spacing: 0.2px;
 }
 
@@ -104,7 +104,7 @@
 .stage {
   flex: 1;
   overflow-y: auto;
-  background: color-mix(in srgb, var(--ink-800) 88%, transparent);
+  background: var(--bg-primary);
 }
 
 /* ---- About ---- */
@@ -121,7 +121,7 @@
   font-family: var(--serif);
   font-size: 32px;
   font-weight: 500;
-  color: var(--parchment);
+  color: var(--text-primary);
   margin-bottom: 14px;
 }
 
@@ -132,20 +132,20 @@
 
 .about__gloss {
   font-size: 13px;
-  color: var(--parchment-dim);
+  color: var(--text-secondary);
   margin-bottom: 20px;
 }
 
 .about__gloss .lat {
   font-family: var(--serif);
   font-style: italic;
-  color: var(--caret);
+  color: var(--accent);
 }
 
 .about__body {
   font-size: 13px;
   line-height: 1.7;
-  color: var(--parchment-dim);
+  color: var(--text-secondary);
   margin-bottom: 32px;
 }
 
@@ -153,20 +153,20 @@
   display: flex;
   gap: 40px;
   padding-top: 20px;
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid var(--border);
 }
 
 .about__meta dt {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.8px;
-  color: var(--sepia);
+  color: var(--text-tertiary);
   margin-bottom: 5px;
 }
 
 .about__meta dd {
   font-size: 13px;
-  color: var(--parchment);
+  color: var(--text-primary);
   display: flex;
   gap: 3px;
 }
@@ -175,8 +175,8 @@ kbd {
   font-family: var(--mono);
   font-size: 11px;
   padding: 2px 6px;
-  color: var(--parchment);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--hairline-strong);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
   border-radius: 4px;
 }

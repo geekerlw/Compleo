@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { emit } from '@tauri-apps/api/event';
+import { useTheme } from '../hooks/useTheme';
 import './Settings.css';
 
 interface Config {
@@ -7,11 +9,13 @@ interface Config {
   base_url: string;
   model: string;
   hotkey: string;
+  theme: string;
 }
 
-const EMPTY: Config = { api_key: '', base_url: '', model: '', hotkey: 'Cmd+.' };
+const EMPTY: Config = { api_key: '', base_url: '', model: '', hotkey: 'Cmd+.', theme: 'system' };
 
 export default function Settings() {
+  useTheme();
   const [config, setConfig] = useState<Config>(EMPTY);
   const [showKey, setShowKey] = useState(false);
   const [note, setNote] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null);
@@ -103,6 +107,32 @@ export default function Settings() {
           </span>
           <span className="trigger__note">在任意聊天窗口唤起补全</span>
         </div>
+      </section>
+
+      <section className="group">
+        <div className="group__head">
+          <h2 className="group__title">外观</h2>
+          <span className="group__rule" />
+        </div>
+        <label className="row">
+          <span className="row__key">主题</span>
+          <span className="row__field">
+            <select
+              className="sel"
+              value={config.theme || 'system'}
+              onChange={(e) => {
+                const theme = e.target.value;
+                setConfig((c) => ({ ...c, theme }));
+                document.documentElement.setAttribute('data-theme', theme);
+                emit('theme-changed', theme);
+              }}
+            >
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </span>
+        </label>
       </section>
 
       <div className="commit">

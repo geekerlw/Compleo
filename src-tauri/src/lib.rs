@@ -46,6 +46,20 @@ use objc2_app_kit::NSWindowStyleMask;
 /// Global flag to prevent concurrent triggers
 static BUSY: AtomicBool = AtomicBool::new(false);
 
+/// Cached tray icon rectangle for positioning the overlay bubble
+static TRAY_RECT: OnceLock<Mutex<Option<tauri::Rect>>> = OnceLock::new();
+
+fn get_tray_rect() -> Option<tauri::Rect> {
+    TRAY_RECT.get_or_init(|| Mutex::new(None)).lock().ok()?.clone()
+}
+
+fn set_tray_rect(rect: tauri::Rect) {
+    let store = TRAY_RECT.get_or_init(|| Mutex::new(None));
+    if let Ok(mut r) = store.lock() {
+        *r = Some(rect);
+    }
+}
+
 /// Make a Tauri window non-activating on macOS (it won't steal focus).
 #[cfg(target_os = "macos")]
 fn make_window_non_activating(window: &tauri::WebviewWindow) {
@@ -86,21 +100,19 @@ pub fn run() {
                 .build(),
         )
         .setup(|app| {
-            // Register only Cmd+. globally. Esc is registered/unregistered dynamically
-            // when overlay or popover is visible to avoid blocking Esc in other apps.
             let cmd_period = Shortcut::new(Some(Modifiers::SUPER), Code::Period);
             app.global_shortcut().register(cmd_period)?;
             log::info!("Registered global shortcut: Cmd+.");
 
             // Create tray
-            let open_app = MenuItem::with_id(app, "open_app", "Open Compleo", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+            let open_app = MenuItem::with_id(app, "open_app", "设置", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_app, &quit])?;
 
             let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
                 .expect("failed to load tray icon");
 
-            TrayIconBuilder::new()
+            TrayIconBuilder::with_id("main-tray")
                 .icon(icon)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -116,14 +128,17 @@ pub fn run() {
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let tauri::tray::TrayIconEvent::Click { button, button_state, .. } = event {
+                        // Cache tray position for overlay bubble
+                        if let Some(rect) = tray.rect().ok().flatten() {
+                            set_tray_rect(rect);
+                        }
                         if button == tauri::tray::MouseButton::Left
                             && button_state == tauri::tray::MouseButtonState::Up
                         {
-                            let app = tray.app_handle();
-                            // Get tray icon position to place popover near it
-                            let tray_rect = tray.rect().ok().flatten();
-                            toggle_popover(app, tray_rect);
+                            // Left click: open main app window
+                            open_main_window(tray.app_handle());
                         }
+                        // Right click: system shows the menu automatically
                     }
                 })
                 .tooltip("Compleo - AI Reply Assistant")
@@ -145,14 +160,14 @@ pub fn run() {
             {
                 let window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("index.html".into()))
                     .title("Compleo Overlay")
-                    .inner_size(420.0, 200.0)
+                    .inner_size(340.0, 160.0)
                     .decorations(false)
                     .always_on_top(true)
                     .skip_taskbar(true)
                     .focused(false)
                     .transparent(true)
                     .resizable(false)
-                    .shadow(false)
+                    .shadow(true)
                     .visible_on_all_workspaces(true)
                     .visible(false)
                     .center()
@@ -306,10 +321,9 @@ fn handle_trigger(app: &tauri::AppHandle, rt: &tokio::runtime::Runtime) {
     // Step 1: Screenshot + OCR (synchronous, fast)
     let (app_name, ocr_text) = capture_and_ocr();
     if ocr_text.starts_with('❌') {
-        // Error - show in overlay
         ensure_overlay_window(app);
         let _ = app.emit("show-recommendation", &ocr_text);
-        start_auto_hide(app.clone(), 5);
+        start_auto_hide(app.clone(), 3);
         BUSY.store(false, Ordering::SeqCst);
         return;
     }
@@ -320,7 +334,7 @@ fn handle_trigger(app: &tauri::AppHandle, rt: &tokio::runtime::Runtime) {
         let msg = "⚠️ 请先配置 API Key（点击菜单栏图标 → Settings）";
         ensure_overlay_window(app);
         let _ = app.emit("show-recommendation", msg);
-        start_auto_hide(app.clone(), 5);
+        start_auto_hide(app.clone(), 3);
         BUSY.store(false, Ordering::SeqCst);
         return;
     } else {
@@ -404,20 +418,20 @@ fn handle_trigger(app: &tauri::AppHandle, rt: &tokio::runtime::Runtime) {
                     log::error!("Clipboard failed: {}", e);
                 }
                 let _ = app_handle.emit("stream-done", &full_text);
-                start_auto_hide(app_handle, 8);
+                start_auto_hide(app_handle, 5);
             }
             Ok(Err(e)) => {
                 log::error!("LLM error: {}", e);
                 // Save failed attempt (empty reply, not accepted)
                 let _ = get_storage().save_conversation(&app_name, &ocr_text, "");
                 let _ = app_handle.emit("stream-error", &e);
-                start_auto_hide(app_handle, 5);
+                start_auto_hide(app_handle, 3);
             }
             Err(e) => {
                 log::error!("LLM task panicked: {}", e);
                 let msg = format!("Internal error: {}", e);
                 let _ = app_handle.emit("stream-error", &msg);
-                start_auto_hide(app_handle, 5);
+                start_auto_hide(app_handle, 3);
             }
         }
 
@@ -466,6 +480,8 @@ fn capture_and_ocr() -> (String, String) {
 
 fn ensure_overlay_window(app: &tauri::AppHandle) {
     if let Some(w) = app.get_webview_window("overlay") {
+        // Position near tray icon
+        position_overlay_near_tray(&w);
         let _ = w.show();
         return;
     }
@@ -473,14 +489,14 @@ fn ensure_overlay_window(app: &tauri::AppHandle) {
     // Fallback: create if somehow missing (should not happen after pre-creation)
     let window = WebviewWindowBuilder::new(app, "overlay", WebviewUrl::App("index.html".into()))
         .title("Compleo Overlay")
-        .inner_size(420.0, 200.0)
+        .inner_size(340.0, 160.0)
         .decorations(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .focused(false)
         .transparent(true)
         .resizable(false)
-        .shadow(false)
+        .shadow(true)
         .visible_on_all_workspaces(true)
         .center()
         .build();
@@ -489,10 +505,33 @@ fn ensure_overlay_window(app: &tauri::AppHandle) {
         Ok(w) => {
             #[cfg(target_os = "macos")]
             make_window_non_activating(&w);
+            position_overlay_near_tray(&w);
             log::info!("Overlay window created (fallback)");
         }
         Err(e) => log::error!("Failed to create overlay: {}", e),
     }
+}
+
+/// Position overlay window below the tray icon (right-aligned)
+fn position_overlay_near_tray(window: &tauri::WebviewWindow) {
+    // Try cached rect first, then query tray icon directly
+    let rect = get_tray_rect().or_else(|| {
+        let app = window.app_handle();
+        app.tray_by_id("main-tray")?.rect().ok().flatten()
+    });
+
+    if let Some(rect) = rect {
+        let pos = rect.position.to_physical::<f64>(1.0);
+        let size = rect.size.to_physical::<f64>(1.0);
+        let overlay_width = 340.0;
+        // Right-align with tray icon
+        let x = pos.x + size.width - overlay_width;
+        let y = pos.y + size.height + 4.0;
+        let _ = window.set_position(tauri::Position::Physical(
+            tauri::PhysicalPosition::new(x as i32, y as i32),
+        ));
+    }
+    // If no tray rect available, stays at last position (or centered)
 }
 
 fn start_auto_hide(app: tauri::AppHandle, seconds: u64) {

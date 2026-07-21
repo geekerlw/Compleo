@@ -1,32 +1,83 @@
 /* Compleo — design tokens
- * Identity: "iron-gall ink manuscript"
- *   Latin compleo = to complete / fill in.
- *   Surfaces: blue-black manuscript ink. Text: warm parchment.
- *   Accent: fountain-pen amber (the completion caret). Success: verdigris patina.
+ * Supports light/dark mode via prefers-color-scheme and [data-theme] attribute.
+ * macOS-native color palette: warm neutrals, system accent compatibility.
  */
 
+/* Dark mode (default / system dark) */
+:root,
+[data-theme="dark"] {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #2a2a2a;
+  --bg-tertiary: #333333;
+  --bg-overlay: rgba(30, 30, 30, 0.82);
+
+  --text-primary: #f0f0f0;
+  --text-secondary: #a0a0a0;
+  --text-tertiary: #6a6a6a;
+
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.18);
+
+  --accent: #4a9eff;          /* macOS blue accent */
+  --accent-soft: rgba(74, 158, 255, 0.12);
+  --success: #63a693;
+  --error: #e5685b;
+  --warning: #e0904a;
+
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Light mode */
+[data-theme="light"] {
+  --bg-primary: #f6f6f6;
+  --bg-secondary: #efefef;
+  --bg-tertiary: #e5e5e5;
+  --bg-overlay: rgba(246, 246, 246, 0.92);
+
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --text-tertiary: #c7c7cc;
+
+  --border: rgba(0, 0, 0, 0.04);
+  --border-strong: rgba(0, 0, 0, 0.09);
+
+  --accent: #007aff;
+  --accent-soft: rgba(0, 122, 255, 0.06);
+  --success: #34c759;
+  --error: #ff3b30;
+  --warning: #ff9500;
+
+  --shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+}
+
+/* System preference auto-switch (when data-theme="system" or no attribute) */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]),
+  [data-theme="system"] {
+    --bg-primary: #f6f6f6;
+    --bg-secondary: #efefef;
+    --bg-tertiary: #e5e5e5;
+    --bg-overlay: rgba(246, 246, 246, 0.92);
+
+    --text-primary: #1d1d1f;
+    --text-secondary: #86868b;
+    --text-tertiary: #c7c7cc;
+
+    --border: rgba(0, 0, 0, 0.04);
+    --border-strong: rgba(0, 0, 0, 0.09);
+
+    --accent: #007aff;
+    --accent-soft: rgba(0, 122, 255, 0.06);
+    --success: #34c759;
+    --error: #ff3b30;
+    --warning: #ff9500;
+
+    --shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+  }
+}
+
+/* Type */
 :root {
-  /* Ink surfaces (blue-black, not neutral near-black) */
-  --ink-900: #14161c;
-  --ink-800: #191c23;
-  --ink-700: #22262f;
-  --ink-600: #2c313c;
-  --hairline: rgba(232, 228, 217, 0.09);
-  --hairline-strong: rgba(232, 228, 217, 0.16);
-
-  /* Parchment text (warm, aged paper) */
-  --parchment: #ece7db;
-  --parchment-dim: #a6a08f;
-  --sepia: #75705f;
-
-  /* Accents */
-  --caret: #e0904a;               /* fountain-pen amber — the completion caret */
-  --caret-soft: rgba(224, 144, 74, 0.14);
-  --verdigris: #63a693;           /* ready / success (bronze patina) */
-  --rust: #c76a4c;                /* error */
-  --azure: #6f9bd1;               /* working / in-progress */
-
-  /* Type */
   --serif: ui-serif, "New York", "Songti SC", Georgia, serif;
   --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
   --mono: "SF Mono", "Menlo", ui-monospace, monospace;
@@ -54,7 +105,7 @@ html, body {
   display: inline-block;
   width: 3px;
   height: 1.05em;
-  background: var(--caret);
+  background: var(--accent);
   border-radius: 1px;
   vertical-align: -0.14em;
   animation: caret-blink 1.15s steps(1, end) infinite;

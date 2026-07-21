@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Settings from './Settings';
+import { useTheme } from '../hooks/useTheme';
 import './MainApp.css';
 
 type Page = 'connection' | 'about';
@@ -10,6 +11,7 @@ const NAV: { id: Page; label: string }[] = [
 ];
 
 export default function MainApp() {
+  useTheme();
   const [page, setPage] = useState<Page>('connection');
 
   return (

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { useTheme } from '../hooks/useTheme';
 import './Popover.css';
 
 type AppState = 'idle' | 'capturing' | 'generating' | 'ready' | 'error';
@@ -14,6 +15,7 @@ const STATE: Record<AppState, { label: string; tone: string }> = {
 };
 
 export default function Popover() {
+  useTheme();
   const [state, setState] = useState<AppState>('idle');
   const [lastReply, setLastReply] = useState('');
   const [model, setModel] = useState('');

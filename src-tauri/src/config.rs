@@ -12,6 +12,8 @@ pub struct Config {
     pub model: String,
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
+    #[serde(default = "default_theme")]
+    pub theme: String,
 }
 
 fn default_base_url() -> String {
@@ -24,6 +26,10 @@ fn default_model() -> String {
 
 fn default_hotkey() -> String {
     "Cmd+.".to_string()
+}
+
+fn default_theme() -> String {
+    "system".to_string()
 }
 
 impl Config {

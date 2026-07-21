@@ -4,7 +4,7 @@
   padding: 44px 44px 32px;
   max-width: 540px;
   font-family: var(--sans);
-  color: var(--parchment);
+  color: var(--text-primary);
 }
 
 /* ---- Section group ---- */
@@ -23,7 +23,7 @@
   font-family: var(--serif);
   font-size: 16px;
   font-weight: 500;
-  color: var(--parchment);
+  color: var(--text-primary);
   letter-spacing: 0.3px;
   white-space: nowrap;
 }
@@ -31,7 +31,7 @@
 .group__rule {
   flex: 1;
   height: 1px;
-  background: var(--hairline);
+  background: var(--border);
 }
 
 /* ---- Field row ---- */
@@ -47,7 +47,7 @@
 .row__key {
   display: block;
   font-size: 12px;
-  color: var(--parchment-dim);
+  color: var(--text-secondary);
   margin-bottom: 7px;
 }
 
@@ -59,10 +59,10 @@
 .in {
   width: 100%;
   padding: 9px 12px;
-  background: color-mix(in srgb, var(--ink-900) 65%, transparent);
-  border: 1px solid var(--hairline);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  color: var(--parchment);
+  color: var(--text-primary);
   font-size: 12.5px;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
@@ -73,12 +73,12 @@
 }
 
 .in::placeholder {
-  color: var(--sepia);
+  color: var(--text-tertiary);
 }
 
 .in:focus {
-  border-color: color-mix(in srgb, var(--caret) 55%, transparent);
-  box-shadow: 0 0 0 3px var(--caret-soft);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .row__field .in {
@@ -91,10 +91,10 @@
   right: 7px;
   transform: translateY(-50%);
   padding: 4px 9px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--hairline);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
   border-radius: 4px;
-  color: var(--parchment-dim);
+  color: var(--text-secondary);
   font-family: var(--sans);
   font-size: 10.5px;
   cursor: pointer;
@@ -102,8 +102,33 @@
 }
 
 .reveal:hover {
-  color: var(--parchment);
-  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
+  background: var(--border-strong);
+}
+
+/* ---- Select ---- */
+.sel {
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  outline: none;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236e6e73' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+.sel:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 /* ---- Trigger ---- */
@@ -118,9 +143,19 @@
   gap: 3px;
 }
 
+.trigger__keys kbd {
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font-family: var(--sans);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
 .trigger__note {
   font-size: 12px;
-  color: var(--sepia);
+  color: var(--text-secondary);
 }
 
 /* ---- Commit ---- */
@@ -133,8 +168,8 @@
 
 .save {
   padding: 8px 26px;
-  background: var(--caret);
-  color: var(--ink-900);
+  background: var(--accent);
+  color: #fff;
   border: none;
   border-radius: var(--r-sm);
   font-family: var(--sans);
@@ -162,8 +197,8 @@
   animation: note-in 0.2s ease;
 }
 
-.note--ok { color: var(--verdigris); }
-.note--bad { color: var(--rust); }
+.note--ok { color: var(--success); }
+.note--bad { color: var(--error); }
 
 @keyframes note-in {
   from { opacity: 0; transform: translateX(-5px); }
